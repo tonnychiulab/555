@@ -64,10 +64,11 @@ python -m http.server 8000
 ## 專案結構
 
 ```
-├── index.html   # 頁面結構、SVG 圖層與漸層定義、彈窗
-├── style.css    # 版面與響應式樣式
-├── engine.js    # 遊戲引擎：棋盤狀態、勝負判定、悔棋、AI（UMD，可供 Node 測試）
-└── main.js      # 3D 投影、SVG 渲染、視角操作、簽名板、排行榜
+├── index.html    # 頁面結構、SVG 圖層與漸層定義、彈窗
+├── style.css     # 版面與響應式樣式
+├── engine.js     # 遊戲引擎：棋盤狀態、勝負判定、悔棋、AI（UMD，可供 Node 測試）
+├── main.js       # 3D 投影、SVG 渲染、視角操作、簽名板、排行榜
+└── favicon.svg   # 網站圖示
 ```
 
 ## 技術細節
