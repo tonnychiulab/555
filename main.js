@@ -39,16 +39,37 @@
     };
   }
 
-  // 世界座標 → 螢幕座標；d 為深度
-  function project(wx, wy, wz) {
+  // 世界座標 → 視空間；d 為深度
+  const NEAR = 0.25;
+  function toView(wx, wy, wz) {
     let x = wx - camPos.x, y = wy - camPos.y, z = wz - camPos.z;
     const x1 = x * cy_ - z * sy_;
     const z1 = x * sy_ + z * cy_;
     const y2 = y * cp_ - z1 * sp_;
     const z2 = y * sp_ + z1 * cp_;
-    const d = -z2;
-    if (d < 0.25) return null;
-    return { x: CX + F * x1 / d, y: CY - F * y2 / d, d };
+    return { x: x1, y: y2, d: -z2 };
+  }
+  function viewToScreen(v) {
+    return { x: CX + F * v.x / v.d, y: CY - F * v.y / v.d, d: v.d };
+  }
+  function project(wx, wy, wz) {
+    const v = toView(wx, wy, wz);
+    return v.d < NEAR ? null : viewToScreen(v);
+  }
+
+  // 視空間多邊形對近平面裁剪（Sutherland–Hodgman）
+  function clipPoly(pts) {
+    const out = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const ain = a.d >= NEAR, bin = b.d >= NEAR;
+      if (ain) out.push(a);
+      if (ain !== bin) {
+        const t = (NEAR - a.d) / (b.d - a.d);
+        out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, d: NEAR });
+      }
+    }
+    return out;
   }
 
   const gx2w = (g) => g - HALF; // 格點 → 世界
@@ -72,9 +93,22 @@
   }
 
   function quad(corners, fill, extra = '') {
-    const ps = corners.map((c) => project(c[0], c[1], c[2]));
-    if (ps.some((p) => !p)) return '';
-    return `<polygon points="${polyStr(ps)}" fill="${fill}" ${extra}/>`;
+    const vs = clipPoly(corners.map((c) => toView(c[0], c[1], c[2])));
+    if (vs.length < 3) return '';
+    return `<polygon points="${polyStr(vs.map(viewToScreen))}" fill="${fill}" ${extra}/>`;
+  }
+
+  // 3D 線段（含近平面裁剪）
+  function line3d(ax, ay, az, bx, by, bz) {
+    let a = toView(ax, ay, az), b = toView(bx, by, bz);
+    if (a.d < NEAR && b.d < NEAR) return '';
+    if (a.d < NEAR || b.d < NEAR) {
+      const t = (NEAR - a.d) / (b.d - a.d);
+      const m = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, d: NEAR };
+      if (a.d < NEAR) a = m; else b = m;
+    }
+    const p = viewToScreen(a), q = viewToScreen(b);
+    return `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${q.x.toFixed(1)}" y2="${q.y.toFixed(1)}"/>`;
   }
 
   function render() {
@@ -94,9 +128,9 @@
     const sides = [];
     for (let i = 0; i < 4; i++) {
       const a = top[i], c = top[(i + 1) % 4];
-      const mid = project((a[0] + c[0]) / 2, -SLAB_H / 2, (a[2] + c[2]) / 2);
+      const mid = toView((a[0] + c[0]) / 2, -SLAB_H / 2, (a[2] + c[2]) / 2);
       sides.push({
-        d: mid ? mid.d : 1e9,
+        d: mid.d,
         corners: [a, c, [c[0], -SLAB_H, c[2]], [a[0], -SLAB_H, a[2]]],
       });
     }
@@ -108,10 +142,8 @@
     let lines = '';
     for (let i = 0; i < SIZE; i++) {
       const w = gx2w(i);
-      const a1 = project(w, 0.015, -HALF), a2 = project(w, 0.015, HALF);
-      const b1 = project(-HALF, 0.015, w), b2 = project(HALF, 0.015, w);
-      if (a1 && a2) lines += `<line x1="${a1.x.toFixed(1)}" y1="${a1.y.toFixed(1)}" x2="${a2.x.toFixed(1)}" y2="${a2.y.toFixed(1)}"/>`;
-      if (b1 && b2) lines += `<line x1="${b1.x.toFixed(1)}" y1="${b1.y.toFixed(1)}" x2="${b2.x.toFixed(1)}" y2="${b2.y.toFixed(1)}"/>`;
+      lines += line3d(w, 0.015, -HALF, w, 0.015, HALF);
+      lines += line3d(-HALF, 0.015, w, HALF, 0.015, w);
     }
     b += `<g stroke="#5a3d1a" stroke-width="1.1" opacity=".9">${lines}</g>`;
 
@@ -517,5 +549,6 @@
     get game() { return game; },
     screenPt: (gx, gy) => screenPts[gy] && screenPts[gy][gx],
     cam,
+    render,
   };
 })();
