@@ -641,7 +641,7 @@
   function sigSvg(strokes) {
     const paths = (strokes || [])
       .filter((s) => s.length >= 2)
-      .map((s) => `<polyline points="${s.map((p) => p.join(',')).join(' ')}" fill="none" stroke="#1a2340" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`)
+      .map((s) => `<polyline points="${s.map((p) => p.map(Number).filter((n) => Number.isFinite(n)).join(',')).join(' ')}" fill="none" stroke="#1a2340" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`)
       .join('');
     return `<svg viewBox="0 0 300 100" xmlns="http://www.w3.org/2000/svg">${paths}</svg>`;
   }
@@ -657,9 +657,9 @@
       .map((r, i) => `
         <div class="rank-item">
           <span class="no">${i + 1}</span>
-          <span class="who">${escapeHtml(r.name)}（${r.side}棋）</span>
+          <span class="who">${escapeHtml(r.name)}（${escapeHtml(String(r.side))}棋）</span>
           ${r.sig && r.sig.length ? sigSvg(r.sig) : '<span></span>'}
-          <span class="meta">${r.vsAI ? '勝過電腦' : '雙人對戰'} · ${r.moves} 手 · ${fmtDur(r.ms)} · ${r.date}</span>
+          <span class="meta">${r.vsAI ? '勝過電腦' : '雙人對戰'} · ${escapeHtml(String(r.moves))} 手 · ${fmtDur(r.ms)} · ${escapeHtml(String(r.date))}</span>
         </div>`)
       .join('');
   }
