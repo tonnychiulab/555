@@ -625,12 +625,15 @@
   /* ---------- 排行榜 ---------- */
   const RANK_KEY = 'gomoku3d-rank';
 
+  const RANK_MAX = 50;
   function loadRank() {
-    try { return JSON.parse(localStorage.getItem(RANK_KEY)) || []; }
-    catch { return []; }
+    try {
+      const data = JSON.parse(localStorage.getItem(RANK_KEY));
+      return Array.isArray(data) ? data.slice(0, RANK_MAX) : [];
+    } catch { return []; }
   }
   function saveRank(list) {
-    try { localStorage.setItem(RANK_KEY, JSON.stringify(list.slice(0, 50))); } catch {}
+    try { localStorage.setItem(RANK_KEY, JSON.stringify(list.slice(0, RANK_MAX))); } catch {}
   }
 
   function fmtDur(ms) {
@@ -638,10 +641,12 @@
     return s >= 60 ? `${Math.floor(s / 60)} 分 ${s % 60} 秒` : `${s} 秒`;
   }
 
+  const SIG_MAX_STROKES = 64, SIG_MAX_POINTS = 512;
   function sigSvg(strokes) {
-    const paths = (strokes || [])
-      .filter((s) => s.length >= 2)
-      .map((s) => `<polyline points="${s.map((p) => p.map(Number).filter((n) => Number.isFinite(n)).join(',')).join(' ')}" fill="none" stroke="#1a2340" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`)
+    const paths = (Array.isArray(strokes) ? strokes : [])
+      .slice(0, SIG_MAX_STROKES)
+      .filter((s) => Array.isArray(s) && s.length >= 2)
+      .map((s) => `<polyline points="${s.slice(0, SIG_MAX_POINTS).map((p) => (Array.isArray(p) ? p : []).map(Number).filter((n) => Number.isFinite(n)).join(',')).join(' ')}" fill="none" stroke="#1a2340" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`)
       .join('');
     return `<svg viewBox="0 0 300 100" xmlns="http://www.w3.org/2000/svg">${paths}</svg>`;
   }
