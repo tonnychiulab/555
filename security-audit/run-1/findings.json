@@ -1,0 +1,95 @@
+[
+  {
+    "verdict": "confirmed",
+    "title": "Inconsistent HTML/attribute output encoding in leaderboard render (stored-DOM XSS via attacker-influenced localStorage)",
+    "description": "renderRank builds the leaderboard's innerHTML from entries read out of localStorage. It escapes the player name via escapeHtml but interpolates the sibling fields r.side, r.moves and r.date unescaped, and passes r.sig to sigSvg which writes stroke points directly into a <polyline points=\"...\"> attribute without escaping or numeric coercion. The app's own write path only ever stores numbers and fixed strings, so this is not reachable through normal play. It becomes exploitable when an attacker can set localStorage['gomoku3d-rank']. On GitHub Pages every repo under tonnychiulab.github.io shares one origin and therefore one localStorage, so a sibling project on that subdomain (or a local actor with DevTools) can plant a crafted entry. PoC: localStorage.setItem('gomoku3d-rank', JSON.stringify([{name:'x',side:'\"><img src=x onerror=alert(document.domain)>',vsAI:false,moves:1,ms:1000,date:'2026/1/1',sig:[]}])) then open the page and click 排行榜; the img onerror fires. The origin holds no credentials or session, so impact is limited to same-origin pivoting (reading/rewriting the shared *.github.io localStorage of the user's other projects), defacement, or redirect.",
+    "root_cause": "renderRank in main.js does not escape the interpolated fields r.side, r.moves and r.date (and sigSvg does not sanitize r.sig points) before assigning them to innerHTML, allowing HTML/attribute injection when a rank entry read from localStorage contains attacker-controlled markup.",
+    "intended_behavior": "The developer intended the leaderboard to render trusted, app-generated records: name is free text (correctly escaped), while side is '黑'/'白', moves/ms are numbers, date is a locale string, and sig is an array of numeric stroke points. All non-name fields were assumed render-safe because the write path only produces safe values.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "main.js",
+        "line": 629,
+        "scope": "loadRank",
+        "description": "Reads and JSON.parses localStorage key 'gomoku3d-rank'; every field of every returned entry is attacker-controlled if the key is writable (shared-origin GitHub Pages or local DevTools)."
+      },
+      {
+        "kind": "propagation",
+        "file": "main.js",
+        "line": 660,
+        "scope": "renderRank",
+        "description": "Interpolates r.side into the <span class=\"who\">（${r.side}棋）</span> template without escaping, while only r.name is passed through escapeHtml."
+      },
+      {
+        "kind": "propagation",
+        "file": "main.js",
+        "line": 644,
+        "scope": "sigSvg",
+        "description": "Builds <polyline points=\"${s.map(p => p.join(',')).join(' ')}\"> from r.sig points with no escaping or numeric coercion, allowing attribute breakout via a point string containing '\"/>'."
+      },
+      {
+        "kind": "sink",
+        "file": "main.js",
+        "line": 656,
+        "scope": "renderRank",
+        "description": "Assigns the assembled string to rank-list.innerHTML; injected markup (e.g. an <img onerror>) is parsed and its event handler executes."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "data_state",
+        "description": "Attacker must be able to write localStorage key 'gomoku3d-rank' on the origin. The app never generates malicious values itself, so normal play cannot trigger this."
+      },
+      {
+        "kind": "environmental_dependency",
+        "description": "Realistic write vector is the GitHub Pages shared origin: all repos under tonnychiulab.github.io share one localStorage, so a sibling project on that subdomain can plant the entry. Alternatively a local actor with DevTools."
+      },
+      {
+        "kind": "user_interaction",
+        "description": "Victim opens the 555 page and opens the 排行榜 (leaderboard) modal, which calls renderRank."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An attacker who controls any other page served from the same tonnychiulab.github.io origin (or has local DevTools access to the victim's browser). No authentication exists on this origin.",
+      "payloads": [
+        "localStorage.setItem('gomoku3d-rank', JSON.stringify([{name:'x',side:'\"><img src=x onerror=alert(document.domain)>',vsAI:false,moves:1,ms:1000,date:'2026/1/1',sig:[]}]))",
+        "sig payload: [[\"\\\"/><img src=x onerror=alert(1)>\",\"0\"],[\"0\",\"0\"]]"
+      ],
+      "instructions": [
+        "From a page on the same origin (e.g. another project under tonnychiulab.github.io) or via DevTools, set localStorage['gomoku3d-rank'] to the malicious JSON payload above.",
+        "Navigate to https://tonnychiulab.github.io/555/.",
+        "Click the 排行榜 button, which invokes renderRank and assigns the crafted entry to rank-list.innerHTML.",
+        "The injected <img src=x onerror=...> fails to load and runs its onerror handler."
+      ],
+      "expected_result": "Arbitrary JavaScript executes in the tonnychiulab.github.io origin context (e.g. alert(document.domain)), demonstrating same-origin script execution from attacker-controlled stored data."
+    },
+    "remediation": {
+      "strategy": "Treat all data read back from localStorage as untrusted. Escape every interpolated field in renderRank (not just name), and in sigSvg coerce each signature coordinate to a finite number before building the points attribute so only numeric data can reach it. These changes are no-ops for legitimately stored records.",
+      "code_changes": [
+        {
+          "file_name": "main.js",
+          "fixed_code": "el.innerHTML = list\n  .map((r, i) => `\n    <div class=\"rank-item\">\n      <span class=\"no\">${i + 1}</span>\n      <span class=\"who\">${escapeHtml(r.name)}（${escapeHtml(String(r.side))}棋）</span>\n      ${r.sig && r.sig.length ? sigSvg(r.sig) : '<span></span>'}\n      <span class=\"meta\">${r.vsAI ? '勝過電腦' : '雙人對戰'} · ${escapeHtml(String(r.moves))} 手 · ${fmtDur(r.ms)} · ${escapeHtml(String(r.date))}</span>\n    </div>`)\n  .join('');"
+        },
+        {
+          "file_name": "main.js",
+          "fixed_code": "function sigSvg(strokes) {\n  const paths = (strokes || [])\n    .filter((s) => s.length >= 2)\n    .map((s) => `<polyline points=\"${s.map((p) => p.map(Number).filter((n) => Number.isFinite(n)).join(',')).join(' ')}\" fill=\"none\" stroke=\"#1a2340\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>`)\n    .join('');\n  return `<svg viewBox=\"0 0 300 100\" xmlns=\"http://www.w3.org/2000/svg\">${paths}</svg>`;\n}"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "low",
+        "reason": "Not reachable by normal play; requires attacker write access to localStorage['gomoku3d-rank'], whose only remote vector is a same-origin sibling project on tonnychiulab.github.io."
+      },
+      "impact": {
+        "score": "low",
+        "reason": "Script runs in an origin with no credentials, session, or sensitive server data; worst case is same-origin pivoting to the shared *.github.io localStorage of the user's other projects, defacement, or redirect."
+      },
+      "overall_severity": "low"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Entire 1103-line codebase was read directly. The unescaped interpolations and the escapeHtml-on-name-only pattern are confirmed at main.js:644, 656, 660, 662, 667; the localStorage read source is confirmed at main.js:629. The only uncertainty is environmental (whether an exploitable same-origin sibling exists), which is why likelihood is low."
+    }
+  }
+]
