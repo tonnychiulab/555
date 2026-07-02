@@ -99,7 +99,7 @@
   }
 
   // 3D 線段（含近平面裁剪）
-  function line3d(ax, ay, az, bx, by, bz) {
+  function line3d(ax, ay, az, bx, by, bz, attrs = '') {
     let a = toView(ax, ay, az), b = toView(bx, by, bz);
     if (a.d < NEAR && b.d < NEAR) return '';
     if (a.d < NEAR || b.d < NEAR) {
@@ -108,7 +108,7 @@
       if (a.d < NEAR) a = m; else b = m;
     }
     const p = viewToScreen(a), q = viewToScreen(b);
-    return `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${q.x.toFixed(1)}" y2="${q.y.toFixed(1)}"/>`;
+    return `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${q.x.toFixed(1)}" y2="${q.y.toFixed(1)}" ${attrs}/>`;
   }
 
   function render() {
@@ -174,24 +174,35 @@
     let sh = '', st = '';
     const items = stones
       .map((s) => {
-        const c = project(gx2w(s.gx), STONE_H, gx2w(s.gy));
-        return c ? { ...s, c } : null;
+        let wx = gx2w(s.gx), wy = STONE_H, wz = gx2w(s.gy), op = 1;
+        if (flee.active && s.v === E.WHITE) {
+          const off = flee.progress * flee.progress * 26;
+          let dx = wx, dz = wz;
+          const len = Math.hypot(dx, dz);
+          if (len < 0.5) { dx = 0.7; dz = -0.7; } else { dx /= len; dz /= len; }
+          wx += dx * off; wz += dz * off;
+          wy += flee.progress * 2.5;
+          op = Math.max(0, 1 - flee.progress * 1.15);
+        }
+        if (op <= 0) return null;
+        const c = project(wx, wy, wz);
+        return c ? { ...s, c, op, wx, wz } : null;
       })
       .filter(Boolean)
       .sort((a, b2) => b2.c.d - a.c.d);
     const last = game.moves[game.moves.length - 1];
     for (const s of items) {
       const rx = F * STONE_R / s.c.d, ry = rx * squash;
-      const shp = project(gx2w(s.gx) + 0.08, 0.01, gx2w(s.gy) + 0.08);
-      if (shp) sh += `<ellipse cx="${shp.x.toFixed(1)}" cy="${shp.y.toFixed(1)}" rx="${(rx * 1.02).toFixed(1)}" ry="${(rx * sp_ * 0.95).toFixed(1)}" fill="rgba(0,0,0,.28)"/>`;
-      st += `<ellipse cx="${s.c.x.toFixed(1)}" cy="${s.c.y.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="url(#g-${s.v === E.BLACK ? 'black' : 'white'})"/>`;
+      const shp = project(s.wx + 0.08, 0.01, s.wz + 0.08);
+      if (shp) sh += `<ellipse cx="${shp.x.toFixed(1)}" cy="${shp.y.toFixed(1)}" rx="${(rx * 1.02).toFixed(1)}" ry="${(rx * sp_ * 0.95).toFixed(1)}" fill="rgba(0,0,0,${(0.28 * s.op).toFixed(2)})"/>`;
+      st += `<ellipse cx="${s.c.x.toFixed(1)}" cy="${s.c.y.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="url(#g-${s.v === E.BLACK ? 'black' : 'white'})"${s.op < 1 ? ` opacity="${s.op.toFixed(2)}"` : ''}/>`;
       if (last && last.x === s.gx && last.y === s.gy && !game.winner) {
         st += `<circle cx="${s.c.x.toFixed(1)}" cy="${(s.c.y - ry * 0.15).toFixed(1)}" r="${Math.max(2, rx * 0.18).toFixed(1)}" fill="#e5484d"/>`;
       }
     }
 
     /* 預覽棋子 */
-    if (hoverCell && !game.winner && !busy && game.board[hoverCell.gy][hoverCell.gx] === E.EMPTY) {
+    if (hoverCell && !game.winner && !busy && mode !== 'auto' && !intro.active && game.board[hoverCell.gy][hoverCell.gx] === E.EMPTY) {
       const c = project(gx2w(hoverCell.gx), STONE_H, gx2w(hoverCell.gy));
       if (c) {
         const rx = F * STONE_R / c.d;
@@ -200,9 +211,15 @@
     }
     layers.stones.innerHTML = sh + st;
 
-    /* 勝利連線特效 */
+    /* 特效層：開場動畫平台 / 勝利連線 */
     let fx = '';
-    if (game.winLine) {
+    if (intro.active) {
+      const time = (performance.now() - intro.t0) / 1000;
+      const plats = intro.plats
+        .map((p) => ({ p, d: toView(p.x, p.y, p.z).d }))
+        .sort((a, b2) => b2.d - a.d);
+      for (const it of plats) if (it.d > NEAR) fx += platformSvg(it.p, time);
+    } else if (game.winLine && !flee.active) {
       const pts = game.winLine
         .map((c) => project(gx2w(c.x), STONE_H + 0.05, gx2w(c.y)))
         .filter(Boolean);
@@ -237,6 +254,12 @@
   function setStatus(t) { statusEl.textContent = t; }
 
   function turnText() {
+    if (mode === 'auto') {
+      if (game.winner === -1) return '和局';
+      if (game.winner) return game.winner === BOSS ? '大哥（黑棋）獲勝！不敗紀錄繼續' : '挑戰者（白棋）連五了…！';
+      if (auto.paused) return '觀戰暫停中';
+      return `${game.current === BOSS ? '大哥（黑棋）' : '挑戰者（白棋）'}思考中…`;
+    }
     if (game.winner === -1) return '和局';
     if (game.winner) {
       const c = game.winner === E.BLACK ? '黑棋' : '白棋';
@@ -252,7 +275,7 @@
     render();
     setStatus(turnText());
     if (game.winner) {
-      if (game.winner > 0 && !recorded) setTimeout(openWinModal, 900);
+      if (mode !== 'auto' && game.winner > 0 && !recorded) setTimeout(openWinModal, 900);
       return;
     }
     scheduleAI();
@@ -272,7 +295,7 @@
   }
 
   function tryPlace(gx, gy) {
-    if (busy || game.winner) return;
+    if (busy || game.winner || mode === 'auto' || intro.active) return;
     if (mode === 'ai' && game.current === aiSide) return;
     if (E.place(game, gx, gy)) {
       hoverCell = null;
@@ -282,6 +305,13 @@
 
   function doUndo() {
     if (aiTimer) { clearTimeout(aiTimer); aiTimer = null; busy = false; }
+    if (mode === 'auto') {
+      if (auto.timer) { clearTimeout(auto.timer); auto.timer = null; }
+      auto.paused = true;
+      auto.ended = false;
+      resetCinematic();
+      updateAutoUI();
+    }
     if (!game.moves.length) return;
     recorded = false;
     E.undo(game);
@@ -292,13 +322,224 @@
 
   function newGame() {
     if (aiTimer) { clearTimeout(aiTimer); aiTimer = null; }
+    if (auto.timer) { clearTimeout(auto.timer); auto.timer = null; }
     busy = false;
     game = E.createGame();
     recorded = false;
     hoverCell = null;
     startTime = Date.now();
+    auto.rewinds = 0;
+    auto.ended = false;
+    auto.paused = false;
+    resetCinematic();
+    updateAutoUI();
     closeModal('modal-win');
     afterMove();
+    if (mode === 'auto') autoNext(500);
+  }
+
+  /* ---------- 電腦自動對戰（大哥不能輸） ---------- */
+  const BOSS = E.BLACK, RIVAL = E.WHITE;
+  const MAX_REWINDS = 3;
+  const auto = { timer: null, paused: false, speed: 1, rewinds: 0, ended: false };
+  const flee = { active: false, progress: 0 };
+  const SKY_NIGHT = ['#1b2a4a', '#3d5578', '#8a9bb5'];
+  const SKY_DAWN = ['#f7b267', '#f4845f', '#ffd9a0'];
+  const flashEl = document.getElementById('flash');
+  const memeEl = document.getElementById('meme');
+
+  function skySet(colors) {
+    document.querySelectorAll('#g-sky stop').forEach((s, i) => s.setAttribute('stop-color', colors[i]));
+  }
+  function lerpColor(a, b, t) {
+    const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
+    const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
+    return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('');
+  }
+  function resetCinematic() {
+    flee.active = false;
+    flee.progress = 0;
+    skySet(SKY_NIGHT);
+    memeEl.classList.remove('show');
+  }
+  function updateAutoUI() {
+    document.getElementById('auto-ctrl').classList.toggle('show', mode === 'auto');
+    document.getElementById('rewind-badge').textContent = `時間倒轉 ×${auto.rewinds}`;
+    document.getElementById('btn-pause').textContent = auto.paused ? '繼續' : '暫停';
+    document.getElementById('btn-speed').textContent = `${auto.speed}x`;
+  }
+
+  function autoNext(delay) {
+    if (auto.timer) clearTimeout(auto.timer);
+    auto.timer = setTimeout(autoStep, delay != null ? delay : 650 / auto.speed);
+  }
+
+  function autoStep() {
+    auto.timer = null;
+    if (mode !== 'auto' || auto.paused || auto.ended) return;
+    if (game.winner) return autoResolve();
+    const isBoss = game.current === BOSS;
+    const mv = E.aiMove(game, isBoss ? null : { jitter: 1, pool: 4 });
+    if (mv) E.place(game, mv.x, mv.y);
+    render();
+    setStatus(turnText());
+    if (game.winner) return autoResolve();
+    autoNext();
+  }
+
+  function autoResolve() {
+    if (game.winner === RIVAL) {
+      if (auto.rewinds < MAX_REWINDS) rewindTime();
+      else playMemeEnding();
+    } else {
+      auto.ended = true;
+      setStatus(turnText());
+    }
+  }
+
+  // 大哥敗局已定：倒轉時間，回到幾手之前重新選擇
+  function rewindTime() {
+    auto.rewinds++;
+    flashEl.classList.add('on');
+    setTimeout(() => {
+      const n = Math.min(6, Math.max(1, game.moves.length - 1));
+      for (let i = 0; i < n; i++) E.undo(game);
+      updateAutoUI();
+      render();
+      flashEl.classList.remove('on');
+      setStatus(`大哥倒轉了時間（第 ${auto.rewinds} 次）`);
+      autoNext(900);
+    }, 220);
+  }
+
+  // 倒轉次數用盡仍敗：天亮、對手逃走、字幕
+  function playMemeEnding() {
+    auto.ended = true;
+    setStatus('天亮了……');
+    document.getElementById('meme-sub').textContent =
+      `時間倒轉 ×${auto.rewinds} · 判定：逃跑者失格 · 戰績：大哥不敗`;
+    const t0 = performance.now();
+    const DAWN_MS = 2000, FLEE_MS = 1600;
+    (function dawn(now) {
+      const t = Math.min(1, (now - t0) / DAWN_MS);
+      skySet(SKY_NIGHT.map((c, i) => lerpColor(c, SKY_DAWN[i], t)));
+      render();
+      if (t < 1) return requestAnimationFrame(dawn);
+      flee.active = true;
+      const t1 = performance.now();
+      (function run(n2) {
+        flee.progress = Math.min(1, (n2 - t1) / FLEE_MS);
+        render();
+        if (flee.progress < 1) return requestAnimationFrame(run);
+        memeEl.classList.add('show');
+        setStatus('大哥沒有輸！');
+      })(t1);
+    })(t0);
+  }
+
+  document.getElementById('btn-pause').addEventListener('click', () => {
+    if (mode !== 'auto') return;
+    auto.paused = !auto.paused;
+    updateAutoUI();
+    if (auto.paused) {
+      if (auto.timer) { clearTimeout(auto.timer); auto.timer = null; }
+    } else if (!game.winner && !auto.ended) {
+      autoNext(200);
+    }
+    setStatus(turnText());
+  });
+  document.getElementById('btn-speed').addEventListener('click', () => {
+    const steps = [1, 2, 4, 0.5];
+    auto.speed = steps[(steps.indexOf(auto.speed) + 1) % steps.length];
+    updateAutoUI();
+  });
+  document.getElementById('meme-close').addEventListener('click', () => memeEl.classList.remove('show'));
+  document.getElementById('meme-again').addEventListener('click', () => {
+    memeEl.classList.remove('show');
+    openModal('modal-setup');
+  });
+
+  /* ---------- 開場動畫（無限城致敬，首次進入播 6 秒） ---------- */
+  const INTRO_KEY = 'gomoku3d-intro-seen';
+  const intro = { active: false, t0: 0, plats: [] };
+
+  function makePlatforms() {
+    const plats = [];
+    for (let i = 0; i < 16; i++) {
+      const ang = i * 2.4 + (i % 3) * 0.7;
+      const rad = 9 + (i % 5) * 4.5;
+      plats.push({
+        x: Math.cos(ang) * rad,
+        z: Math.sin(ang) * rad,
+        y: 4 + i * 3.6,
+        w: 3 + (i % 3) * 1.6,
+        rot: ang,
+        spin: (i % 2 ? 1 : -1) * (0.15 + (i % 4) * 0.08),
+        shoji: i % 3 === 0,
+        lantern: i % 4 === 1,
+      });
+    }
+    return plats;
+  }
+
+  function platformSvg(p, time) {
+    const r = p.rot + time * p.spin;
+    const c = Math.cos(r), s = Math.sin(r);
+    const hw = p.w, hd = p.w * 0.62;
+    const corners = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]
+      .map(([ux, uz]) => [p.x + ux * c - uz * s, p.y, p.z + ux * s + uz * c]);
+    let out = quad(corners, '#7a5a2e', 'stroke="#43301a" stroke-width="1"');
+    if (p.shoji) {
+      const a = corners[0], b = corners[1];
+      const hgt = 2.6;
+      out += quad([a, b, [b[0], p.y + hgt, b[2]], [a[0], p.y + hgt, a[2]]],
+        'rgba(240,234,214,.85)', 'stroke="#5a4326" stroke-width="1"');
+      for (let i = 1; i < 4; i++) {
+        const t = i / 4;
+        out += line3d(
+          a[0] + (b[0] - a[0]) * t, p.y, a[2] + (b[2] - a[2]) * t,
+          a[0] + (b[0] - a[0]) * t, p.y + hgt, a[2] + (b[2] - a[2]) * t,
+          'stroke="#5a4326"');
+      }
+    }
+    if (p.lantern) {
+      const lp = project(p.x, p.y + 1.6, p.z);
+      if (lp) out += `<circle cx="${lp.x.toFixed(1)}" cy="${lp.y.toFixed(1)}" r="${(F * 0.5 / lp.d).toFixed(1)}" fill="url(#g-lantern)"/>`;
+    }
+    return out;
+  }
+
+  const easeIO = (t) => (t < 0.5 ? 2 * t * t : 1 - (2 - 2 * t) ** 2 / 2);
+
+  function playIntro() {
+    intro.active = true;
+    intro.t0 = performance.now();
+    intro.plats = makePlatforms();
+    document.getElementById('intro-title').classList.add('show');
+    setStatus('無限之城……');
+    requestAnimationFrame(introFrame);
+  }
+  function introFrame(now) {
+    if (!intro.active) return;
+    const t = Math.min(1, (now - intro.t0) / 6000);
+    const e = easeIO(t);
+    cam.dist = 55 - (55 - 13.5) * e;
+    cam.pitch = 1.25 - (1.25 - 0.52) * e;
+    cam.yaw = (1 - e) * Math.PI * 3;
+    render();
+    if (t >= 1) endIntro();
+    else requestAnimationFrame(introFrame);
+  }
+  function endIntro() {
+    if (!intro.active) return;
+    intro.active = false;
+    intro.plats = [];
+    cam.yaw = 0; cam.pitch = 0.52; cam.dist = 13.5;
+    document.getElementById('intro-title').classList.remove('show');
+    try { localStorage.setItem(INTRO_KEY, '1'); } catch {}
+    render();
+    setStatus('選擇模式開始對局');
+    openModal('modal-setup');
   }
 
   /* ---------- 視角操作（拖曳/縮放/點擊） ---------- */
@@ -306,6 +547,7 @@
   let dragging = false, tapStart = null, pinchDist = 0;
 
   svg.addEventListener('pointerdown', (e) => {
+    if (intro.active) { endIntro(); return; }
     svg.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 1) {
@@ -526,6 +768,7 @@
   segInit('seg-mode', (btn) => {
     mode = btn.dataset.mode;
     document.getElementById('field-side').style.display = mode === 'ai' ? '' : 'none';
+    document.getElementById('auto-desc').style.display = mode === 'auto' ? '' : 'none';
   });
   segInit('seg-side', (btn) => {
     humanSide = +btn.dataset.side;
@@ -543,12 +786,25 @@
   /* ---------- 啟動 ---------- */
   window.addEventListener('resize', resize);
   resize();
-  setStatus('選擇模式開始對局');
+  let introSeen = true;
+  try { introSeen = !!localStorage.getItem(INTRO_KEY); } catch {}
+  if (introSeen) {
+    setStatus('選擇模式開始對局');
+    openModal('modal-setup');
+  } else {
+    playIntro();
+  }
 
   window.__g3d = {
     get game() { return game; },
     screenPt: (gx, gy) => screenPts[gy] && screenPts[gy][gx],
     cam,
     render,
+    auto,
+    intro,
+    flee,
+    rewindTime,
+    playMemeEnding,
+    endIntro,
   };
 })();

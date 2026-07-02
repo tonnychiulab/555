@@ -117,23 +117,32 @@
     return [...set];
   }
 
-  function aiMove(game) {
+  // opts.jitter: 0~1 隨機程度；opts.pool: 隨機時的候選數；opts.rng: 隨機來源（測試用）
+  function aiMove(game, opts) {
+    const o = opts || {};
+    const rng = o.rng || Math.random;
+    const jitter = o.jitter || 0;
+    const pool = o.pool || 1;
     const me = game.current;
     const foe = me === BLACK ? WHITE : BLACK;
     const board = game.board;
-    let best = null, bestScore = -1;
+    const scored = [];
     for (const key of candidateCells(board)) {
       const x = key % SIZE, y = Math.floor(key / SIZE);
       const attack = pointScore(board, x, y, me);
       if (attack >= 10000000) return { x, y }; // 直接獲勝
       const defend = pointScore(board, x, y, foe);
-      const score = attack + defend * 0.9;
-      if (score > bestScore) {
-        bestScore = score;
-        best = { x, y };
-      }
+      scored.push({ x, y, score: attack + defend * 0.9 });
     }
-    return best;
+    scored.sort((a, b) => b.score - a.score);
+    const best = scored[0];
+    if (!best) return null;
+    // 攸關勝負的一手（擋四以上）不受隨機影響
+    if (jitter <= 0 || best.score >= 90000) return { x: best.x, y: best.y };
+    const floor = best.score * (1 - 0.3 * jitter);
+    const cands = scored.slice(0, pool).filter((s) => s.score >= floor);
+    const pick = cands[Math.floor(rng() * cands.length)];
+    return { x: pick.x, y: pick.y };
   }
 
   return { SIZE, EMPTY, BLACK, WHITE, createGame, place, undo, aiMove, findWinLine };

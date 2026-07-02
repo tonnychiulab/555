@@ -145,6 +145,88 @@ input[type=text]:focus { border-color: #d9b878; }
 .rank-item svg { width: 96px; height: 32px; background: #f5f1e6; border-radius: 6px; }
 .rank-empty { text-align: center; color: #8f9ab3; padding: 24px 0; }
 
+/* 觀戰控制 */
+#auto-ctrl { display: none; align-items: center; gap: 8px; }
+#auto-ctrl.show { display: inline-flex; }
+#rewind-badge {
+  font-size: 12px;
+  color: #ffd166;
+  background: rgba(255, 209, 102, .12);
+  border: 1px solid rgba(255, 209, 102, .4);
+  border-radius: 10px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+/* 時間倒轉閃光 */
+#flash {
+  position: fixed;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s;
+  z-index: 20;
+}
+#flash.on { opacity: .9; }
+
+/* 致敬字幕 */
+#meme {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 15;
+  background: rgba(5, 7, 12, .35);
+}
+#meme.show { display: flex; }
+.meme-inner { text-align: center; display: flex; flex-direction: column; gap: 14px; padding: 16px; }
+.meme-line1 {
+  font-size: clamp(40px, 9vw, 84px);
+  font-weight: 900;
+  letter-spacing: 6px;
+  color: #ffd166;
+  text-shadow: 0 0 24px rgba(255, 140, 40, .9), 0 4px 10px rgba(0, 0, 0, .8);
+  animation: meme-pop .5s cubic-bezier(.2, 1.6, .4, 1) both;
+}
+.meme-line2 {
+  font-size: clamp(22px, 4.5vw, 40px);
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: #fff;
+  text-shadow: 0 3px 8px rgba(0, 0, 0, .8);
+  animation: meme-pop .5s .35s cubic-bezier(.2, 1.6, .4, 1) both;
+}
+.meme-sub { font-size: 14px; color: #e8e6df; opacity: .85; animation: meme-fade .6s .8s both; }
+#meme .row { animation: meme-fade .6s 1.2s both; }
+@keyframes meme-pop { from { opacity: 0; transform: scale(2.2); } to { opacity: 1; transform: scale(1); } }
+@keyframes meme-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* 開場動畫標題 */
+#intro-title {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  pointer-events: none;
+  text-align: center;
+}
+#intro-title.show { display: flex; }
+#intro-title span {
+  font-size: clamp(36px, 8vw, 72px);
+  font-weight: 900;
+  letter-spacing: 14px;
+  color: #e8e6df;
+  text-shadow: 0 0 30px rgba(255, 160, 60, .55), 0 4px 12px rgba(0, 0, 0, .9);
+  animation: intro-in 2.2s .8s both;
+}
+#intro-title small { font-size: 13px; color: rgba(232, 230, 223, .6); animation: meme-fade 1s 1.6s both; }
+@keyframes intro-in { from { opacity: 0; letter-spacing: 34px; } to { opacity: 1; letter-spacing: 14px; } }
+
 @media (max-width: 480px) {
   #topbar h1 { font-size: 15px; letter-spacing: 1px; }
   #controls button { padding: 5px 10px; font-size: 13px; }
